@@ -1,0 +1,92 @@
+from flask import Flask, request, jsonify
+from flask_socketio import SocketIO
+import threading, time
+import RPi.GPIO as GPIO
+
+# ——— GPIO SETUP ———
+FIRE_PIN = 17
+PAN_PIN  = 13
+TILT_PIN = 19
+
+MIN_DUTY, MAX_DUTY, STOP_DUTY = 5.0, 10.0, 7.5
+GPIO.setmode(GPIO.BCM)
+GPIO.setwarnings(False)
+
+# Fire (simple digital on/off)
+GPIO.setup(FIRE_PIN, GPIO.OUT)
+GPIO.output(FIRE_PIN, GPIO.LOW)
+
+# Pan & tilt (PWM for positional control loop)
+GPIO.setup(PAN_PIN, GPIO.OUT)
+GPIO.setup(TILT_PIN, GPIO.OUT)
+pan_pwm  = GPIO.PWM(PAN_PIN, 50)
+tilt_pwm = GPIO.PWM(TILT_PIN, 50)
+pan_pwm.start(STOP_DUTY)
+tilt_pwm.start(STOP_DUTY)
+
+# ——— SHARED STATE ———
+pan_angle = 90
+tilt_angle = 90
+pan_dir   = None    # "left", "right", or None
+tilt_dir  = None    # "up", "down", or None
+
+def angle_to_duty(a):
+    return MIN_DUTY + (a/270.0)*(MAX_DUTY-MIN_DUTY)
+
+# ——— BACKGROUND SWEEPER ———
+def servo_loop():
+    global pan_angle, tilt_angle
+    while True:
+        if pan_dir == 'right' and pan_angle < 270:
+            pan_angle += 1
+            pan_pwm.ChangeDutyCycle(angle_to_duty(pan_angle))
+        elif pan_dir == 'left' and pan_angle > 0:
+            pan_angle -= 1
+            pan_pwm.ChangeDutyCycle(angle_to_duty(pan_angle))
+
+        if tilt_dir == 'up' and tilt_angle < 45:
+            tilt_angle += 1
+            tilt_pwm.ChangeDutyCycle(angle_to_duty(tilt_angle))
+        elif tilt_dir == 'down' and tilt_angle > 0:
+            tilt_angle -= 1
+            tilt_pwm.ChangeDutyCycle(angle_to_duty(tilt_angle))
+
+        time.sleep(0.02)
+
+# ——— FLASK + SOCKET.IO SETUP ———
+app = Flask(__name__)
+socketio = SocketIO(app)
+socketio.start_background_task(servo_loop)
+
+# ——— HTTP ROUTE for FIRE ———
+@app.route('/fire', methods=['POST'])
+def http_fire():
+    # spawn a background job so we return immediately
+    socketio.start_background_task(target=do_fire)
+    return jsonify(success=True)
+
+def do_fire():
+    GPIO.output(FIRE_PIN, GPIO.HIGH)
+    socketio.sleep(1)   # uses SocketIO-friendly sleep
+    GPIO.output(FIRE_PIN, GPIO.LOW)
+
+# ——— WS HANDLERS for PAN/TILT ———
+@socketio.on('pan')
+def on_pan(msg):
+    global pan_dir
+    if msg.get('action') == 'start':
+        pan_dir = msg['dir']
+    else:
+        pan_dir = None
+
+@socketio.on('tilt')
+def on_tilt(msg):
+    global tilt_dir
+    if msg.get('action') == 'start':
+        tilt_dir = msg['dir']
+    else:
+        tilt_dir = None
+
+if __name__ == '__main__':
+    print("Starting mixed HTTP + WebSocket GPIO server…")
+    socketio.run(app, host='0.0.0.0', port=5000)
