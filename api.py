@@ -4,9 +4,12 @@ from stream_video import gen_frames
 import time
 import threading
 from flask_socketio import SocketIO
+import pigpio
 
 
 # ------------------ Configuration ----------------------
+
+pi = pigpio.pi()
 
 # Pin MACROS
 FIRE_PIN = 17
@@ -36,8 +39,10 @@ tilt_dir  = None    # "up","down", or None
 GPIO.setmode(GPIO.BCM)
 
 # Set up Fire Pin
-GPIO.setup(FIRE_PIN, GPIO.OUT)
-GPIO.output(FIRE_PIN, GPIO.HIGH)
+# GPIO.setup(FIRE_PIN, GPIO.OUT)
+# GPIO.output(FIRE_PIN, GPIO.HIGH)
+pi.set_mode(FIRE_PIN, pigpio.OUTPUT)
+pi.write(FIRE_PIN, 1)
 
 
 # Set up Pan Servo
@@ -62,9 +67,17 @@ socketio = SocketIO(app)
 
 @app.route('/fire', methods=['POST'])
 def fire():
-    GPIO.output(FIRE_PIN, GPIO.LOW)
+    # GPIO.output(FIRE_PIN, GPIO.LOW)
+    # time.sleep(1)
+    # GPIO.output(FIRE_PIN, GPIO.HIGH)
+    pi.write(FIRE_PIN, 0)
     time.sleep(1)
-    GPIO.output(FIRE_PIN, GPIO.HIGH)
+    pi.write(FIRE_PIN, 1)
+    time.sleep(0.05)
+    
+    pi.set_PWM_frequency(FIRE_PIN, 200)
+    pi.set_PWM_dutycycle(FIRE_PIN, 128)
+    
     return jsonify({'success' : True})
 
 
