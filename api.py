@@ -75,8 +75,8 @@ def fire():
     pi.write(FIRE_PIN, 1)
     time.sleep(0.05)
     
-    pi.set_PWM_frequency(FIRE_PIN, 200)
-    pi.set_PWM_dutycycle(FIRE_PIN, 128)
+    pi.set_PWM_frequency(FIRE_PIN, 1000)
+    pi.set_PWM_dutycycle(FIRE_PIN, 35)
     
     return jsonify({'success' : True})
 
@@ -153,12 +153,17 @@ def servo_loop():
 if __name__ == '__main__':
     try:
         threading.Thread(target=servo_loop, daemon='True').start()
+        pi.set_PWM_frequency(FIRE_PIN, 200)
+        pi.set_PWM_dutycycle(FIRE_PIN, 35)
+
         socketio.start_background_task(servo_loop)
         app.run(host='0.0.0.0', port=5000)
     finally:
         pan_pwm.stop()
         tilt_pwm.stop()
+        pi.stop()
         GPIO.cleanup()
+
 
 
 # Test Command: curl -X POST http://raspberrypi.local:5000/gpio/17/off
